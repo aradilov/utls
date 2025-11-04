@@ -132,6 +132,20 @@ func (hs *serverHandshakeState) handshake() error {
 	return nil
 }
 
+// GetDPIEnrich retrieves the DPI enrichment data associated with the given extid (do not change the data).
+// Returns the data as a slice of bytes and a boolean indicating success.
+// If the extid is not found in the DPIEnrich map, it returns nil and false.
+func (c *Conn) GetDPIEnrich(extid uint16) ([]byte, bool) {
+	meta, ok := c.dpiEnrich[extid]
+	if !ok {
+		return nil, false
+	}
+
+	var offset uint32 = uint32(meta >> 32)
+	var extlen uint32 = uint32(meta & 0xffffffff)
+	return c.extractedExtensionsData[offset : offset+extlen], true
+}
+
 // readClientHello reads a ClientHello message and selects the protocol version.
 func (c *Conn) readClientHello(ctx context.Context) (*clientHelloMsg, *echServerContext, error) {
 	// clientHelloMsg is included in the transcript, but we haven't initialized
@@ -145,6 +159,9 @@ func (c *Conn) readClientHello(ctx context.Context) (*clientHelloMsg, *echServer
 		c.sendAlert(alertUnexpectedMessage)
 		return nil, nil, unexpectedMessageError(clientHello, msg)
 	}
+
+	c.dpiEnrich = clientHello.dpiEnrich
+	c.extractedExtensionsData = clientHello.extractedExtensionsData
 
 	// ECH processing has to be done before we do any other negotiation based on
 	// the contents of the client hello, since we may swap it out completely.

@@ -914,6 +914,10 @@ type Config struct {
 	// autoSessionTicketKeys is like sessionTicketKeys but is owned by the
 	// auto-rotation logic. See Config.ticketKeys.
 	autoSessionTicketKeys []ticketKey
+
+	// The DPIEnrich array contains a list of extensions that need to be extracted.
+	// After the data is extracted, the corresponding extension is removed, and it looks as if the client never sent this extension in the original request.
+	DPIEnrich []uint16
 }
 
 // EncryptedClientHelloKey holds a private key that is associated

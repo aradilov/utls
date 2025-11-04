@@ -124,6 +124,9 @@ type Conn struct {
 	activeCall atomic.Int32
 
 	tmp [16]byte
+
+	dpiEnrich               map[uint16]uint64
+	extractedExtensionsData []byte
 }
 
 // Access to net.Conn methods.

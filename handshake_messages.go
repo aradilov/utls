@@ -101,6 +101,9 @@ type clientHelloMsg struct {
 	// extensions are only populated on the server-side of a handshake
 	extensions []uint16
 
+	dpiEnrich               map[uint16]uint64
+	extractedExtensionsData []byte
+
 	// [uTLS]
 	nextProtoNeg bool
 }
@@ -447,10 +450,16 @@ func (m *clientHelloMsg) updateBinders(pskBinders [][]byte) error {
 }
 
 func (m *clientHelloMsg) unmarshal(data []byte) bool {
-	*m = clientHelloMsg{original: data}
-	s := cryptobyte.String(data)
+	if nil == m {
+		*m = clientHelloMsg{original: data}
+	} else {
+		m.original = data
+	}
 
-	if !s.Skip(4) || // message type and uint24 length field
+	s := cryptobyte.String(data)
+	var msgLen uint32
+
+	if !s.Skip(1) || !s.ReadUint24(&msgLen) || // message type and uint24 length field
 		!s.ReadUint16(&m.vers) || !s.ReadBytes(&m.random, 32) ||
 		!readUint8LengthPrefixed(&s, &m.sessionId) {
 		return false
@@ -482,10 +491,17 @@ func (m *clientHelloMsg) unmarshal(data []byte) bool {
 		return true
 	}
 
+	allExtLen := uint16(s[1]) | uint16(s[0])<<8
+
 	var extensions cryptobyte.String
 	if !s.ReadUint16LengthPrefixed(&extensions) || !s.Empty() {
 		return false
 	}
+
+	offset := len(data) - len(extensions)
+	extpos := offset - 2
+
+	var extLen int
 
 	seenExts := make(map[uint16]bool)
 	for !extensions.Empty() {
@@ -501,6 +517,9 @@ func (m *clientHelloMsg) unmarshal(data []byte) bool {
 		}
 		seenExts[extension] = true
 		m.extensions = append(m.extensions, extension)
+
+		offset += extLen
+		extLen = 4 + len(extData)
 
 		switch extension {
 		case extensionServerName:
@@ -698,6 +717,18 @@ func (m *clientHelloMsg) unmarshal(data []byte) bool {
 				return false
 			}
 		default:
+			if _, ok := m.dpiEnrich[extension]; ok {
+				packed := (uint64(len(m.extractedExtensionsData)) << 32) | uint64(extLen-4)
+				m.dpiEnrich[extension] = packed
+				m.extractedExtensionsData = append(m.extractedExtensionsData, extData...)
+				m.original = append(m.original[:offset], m.original[offset+extLen:]...)
+				extensions = m.original[offset:]
+
+				msgLen = msgLen - uint32(extLen)
+				allExtLen = allExtLen - uint16(extLen)
+				extLen = 0
+			}
+
 			// Ignore unknown extensions.
 			continue
 		}
@@ -707,6 +738,10 @@ func (m *clientHelloMsg) unmarshal(data []byte) bool {
 		}
 	}
 
+	putUint24(m.original[1:4], msgLen)
+	m.original[extpos] = byte(allExtLen >> 8)
+	m.original[extpos+1] = byte(allExtLen)
+
 	return true
 }
 
@@ -715,7 +750,7 @@ func (m *clientHelloMsg) originalBytes() []byte {
 }
 
 func (m *clientHelloMsg) clone() *clientHelloMsg {
-	return &clientHelloMsg{
+	dst := &clientHelloMsg{
 		original:                         slices.Clone(m.original),
 		vers:                             m.vers,
 		random:                           slices.Clone(m.random),
@@ -744,7 +779,15 @@ func (m *clientHelloMsg) clone() *clientHelloMsg {
 		pskBinders:                       slices.Clone(m.pskBinders),
 		quicTransportParameters:          slices.Clone(m.quicTransportParameters),
 		encryptedClientHello:             slices.Clone(m.encryptedClientHello),
+		extractedExtensionsData:          slices.Clone(m.extractedExtensionsData),
 	}
+
+	dst.dpiEnrich = make(map[uint16]uint64, len(m.dpiEnrich))
+	for k, v := range m.dpiEnrich {
+		dst.dpiEnrich[k] = v
+	}
+
+	return dst
 }
 
 type serverHelloMsg struct {
@@ -2001,4 +2044,11 @@ func transcriptMsg(msg handshakeMessage, h transcriptHash) error {
 	}
 	h.Write(data)
 	return nil
+}
+
+func putUint24(b []byte, v uint32) {
+	_ = b[2] // early bounds check to guarantee safety of writes below
+	b[0] = byte(v >> 16)
+	b[1] = byte(v >> 8)
+	b[2] = byte(v)
 }
