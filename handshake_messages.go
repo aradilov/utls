@@ -717,16 +717,18 @@ func (m *clientHelloMsg) unmarshal(data []byte) bool {
 				return false
 			}
 		default:
-			if _, ok := m.dpiEnrich[extension]; ok {
-				packed := (uint64(len(m.extractedExtensionsData)) << 32) | uint64(extLen-4)
-				m.dpiEnrich[extension] = packed
-				m.extractedExtensionsData = append(m.extractedExtensionsData, extData...)
-				m.original = append(m.original[:offset], m.original[offset+extLen:]...)
-				extensions = m.original[offset:]
+			if m.dpiEnrich != nil {
+				if _, ok := m.dpiEnrich[extension]; ok {
+					packed := (uint64(len(m.extractedExtensionsData)) << 32) | uint64(extLen-4)
+					m.dpiEnrich[extension] = packed
+					m.extractedExtensionsData = append(m.extractedExtensionsData, extData...)
+					m.original = append(m.original[:offset], m.original[offset+extLen:]...)
+					extensions = m.original[offset:]
 
-				msgLen = msgLen - uint32(extLen)
-				allExtLen = allExtLen - uint16(extLen)
-				extLen = 0
+					msgLen = msgLen - uint32(extLen)
+					allExtLen = allExtLen - uint16(extLen)
+					extLen = 0
+				}
 			}
 
 			// Ignore unknown extensions.

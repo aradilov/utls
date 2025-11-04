@@ -1124,7 +1124,15 @@ func (c *Conn) unmarshalHandshakeMessage(data []byte, transcript transcriptHash)
 	case typeHelloRequest:
 		m = new(helloRequestMsg)
 	case typeClientHello:
-		m = new(clientHelloMsg)
+		hello := new(clientHelloMsg)
+		if len(c.config.DPIEnrich) > 0 {
+			hello.dpiEnrich = make(map[uint16]uint64, len(c.config.DPIEnrich))
+			for _, dpi := range c.config.DPIEnrich {
+				hello.dpiEnrich[dpi] = 0
+			}
+		}
+		m = hello
+
 	case typeServerHello:
 		m = new(serverHelloMsg)
 	case typeNewSessionTicket:
